@@ -83,31 +83,38 @@ def extract_number_from_string(s):
     return 0
 
 
-
 def convert_fee_to_float_simple(fee_value):
-    if isinstance(fee_value, str):
-        # Ořízne řetězec na základě první závorky (pokud existuje)
-        fee_value = fee_value.split('(')[0].strip()
-
-        # Zkusíme extrahovat čísla z řetězce
-        numbers = re.findall(r"(\d+\.?\d*)", fee_value)
-        if not numbers:  # pokud nejsou žádná čísla, vrátíme -1 (nebo jinou náhradní hodnotu)
-            return -1
-
-        if '%' in fee_value:
-            # Pokud obsahuje více částí oddělených čárkami, vezmeme první část
-            fee_value = fee_value.split(',')[0].strip()
+    try:
+        if isinstance(fee_value, str):
+            fee_value = fee_value.split('(')[0].strip()
+            numbers = re.findall(r"(\d+\.?\d*)", fee_value)
             
-            # Pokud obsahuje rozsah, vytvoříme kombinovanou hodnotu
-            if '-' in fee_value:
-                fee_parts = fee_value.split('-')
-                # Vezmeme první číslo z rozsahu
-                return float(fee_parts[0].replace('%', '').strip())
-            
-            # Extrakce čísla ze stringu
-            fee_value = numbers[0]
-            return float(fee_value)
-    return -1  # Pokud nedostaneme žádnou platnou hodnotu, vrátíme -1 (nebo jinou náhradní hodnotu)
+            if not numbers:  
+                return -1
+
+            if '%' in fee_value:
+                fee_value = fee_value.split(',')[0].strip()
+
+                if '-' in fee_value:
+                    fee_parts = fee_value.split('-')
+
+                    # Check if fee_parts actually has elements before attempting to access them.
+                    if fee_parts and len(fee_parts) > 0:
+                        cleaned_value = fee_parts[0].replace('%', '').strip()
+
+                        # Check if the cleaned value is a valid float.
+                        if cleaned_value.replace(".", "", 1).isdigit():
+                            return float(cleaned_value)
+
+                # Extract the number from the string.
+                fee_value = numbers[0]
+                return float(fee_value)
+
+        return -1
+
+    except Exception as e:
+        print(f"Error processing '{fee_value}': {str(e)}")
+        return -1
 
 
 
@@ -152,6 +159,10 @@ def filter_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         available_columns = [col for col in df.columns if col not in columns_to_exclude]
         to_filter_columns = st.multiselect("Filtrovat přehled podle:", available_columns,placeholder="Vybrat finanční ukazatel")
         
+        if len(to_filter_columns) > 3:
+            st.warning("V tomto filtru můžete vybrat zároveň pouze 3 finanční ukazatele. Rozsáhlejší filtrování je dostupné ve fullscreenu (⛶) aplikace.")
+            to_filter_columns = []  # Reset the selection
+
         for column in to_filter_columns:
             left, right = st.columns((1, 20))
 
@@ -212,7 +223,7 @@ def filter_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                 continue  # pokračujte dalším sloupcem
 
             if df[column].apply(lambda x: not pd.api.types.is_number(x)).any():
-                unique_values = df[column].dropna().unique()
+                    unique_values = df[column].dropna().unique()
 
             elif is_numeric_dtype(df[column]):
                 _min = df[column].min()
@@ -220,22 +231,31 @@ def filter_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                 if pd.notna(_min) and pd.notna(_max):
                     _min = float(_min)
                     _max = float(_max)
-    
-    # Pokud jsou hodnoty min a max stejné, nevytvoříme posuvník a vrátíme dataframe filtrovaný na základě této hodnoty
-                    if _min == _max:
-                        df = df[df[column] == _min]
-                    else:
-                        step = (_max - _min) / 100
-                        if step == 0:
-                            step = 0.01
-                        user_num_input = right.slider(
-                        column,
+
+                    # Použití st.number_input pro zadání rozsahu
+                    user_num_input = right.number_input(
+                        f"{column} - Zadejte minimální hodnotu",
                         min_value=_min,
                         max_value=_max,
-                        value=(_min, _max),
-                        step=step,
-                        )
-                        df = df[df[column].between(*user_num_input)]
+                        value=_min,  # Nastavíme minimální hodnotu jako výchozí
+                        step=0.01,   # Přizpůsobte krok podle vašich potřeb
+                    )
+
+                        # Získání zadané minimální hodnoty
+                    min_val = user_num_input
+
+                    user_num_input = right.number_input(
+                        f"{column} - Zadejte maximální hodnotu",
+                        min_value=_min,  # Přizpůsobte minimální hodnotu podle zadaného min_val
+                        max_value=_max,
+                        value=_max,      # Nastavíme maximální hodnotu jako výchozí
+                        step=0.01,       # Přizpůsobte krok podle vašich potřeb
+                    )
+
+                    # Získání zadané maximální hodnoty
+                    max_val = user_num_input
+
+                    df = df[df[column].between(min_val, max_val)]
 
             elif is_datetime64_any_dtype(df[column]):
                 user_date_input = right.date_input(
@@ -362,5 +382,4 @@ if not filtered_df.empty:
                  }, height=1513)
 else:
     st.warning("Žádná data neodpovídají zvoleným filtrům.")
-
 
